@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peace Sign Blur Camera</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #121212;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            aspect-ratio: 4/3;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        video {
+            display: none; /* Kita menggambar semuanya di canvas */
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            transform: scaleX(-1); /* Efek cermin (mirror) seperti kamera depan */
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4757;
+            transition: all 0.3s ease;
+        }
+        .indicator.active {
+            background: #2ed573;
+            box-shadow: 0 0 10px #2ed573;
+        }
+        .loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.2rem;
+            color: #ccc;
+            pointer-events: none;
+            text-align: center;
+            font-weight: bold;
+        }
+    </style>
+    <!-- MediaPipe Libraries dari CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <h2 style="margin-bottom: 15px;">✌️ Peace Blur Filter</h2>
+    
+    <div class="container">
+        <div id="loader" class="loader">Memuat model AI & Kamera...<br><span style="font-size: 0.9rem; font-weight: normal;">Pastikan Anda mengizinkan akses kamera</span></div>
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="canvasElement"></canvas>
+    </div>
+
+    <div class="status">
+        <div id="indicator" class="indicator"></div>
+        <span id="statusText">Mendeteksi tangan...</span>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const canvasCtx = canvasElement.getContext('2d');
+        const indicator = document.getElementById('indicator');
+        const statusText = document.getElementById('statusText');
+        const loader = document.getElementById('loader');
+
+        // Fungsi mengecek apakah ujung jari berada di atas sendi bawahnya (menandakan jari terbuka)
+        function fingerUp(tip, pip, landmarks) {
+            // Pada koordinat layar, y mengecil ke arah atas layar
+            return landmarks[tip].y < landmarks[pip].y;
+        }
+
+        // Fungsi mengecek kombinasi jari untuk simbol Peace
+        function isPeace(landmarks) {
+            const indexUp = fingerUp(8, 6, landmarks);   // Telunjuk
+            const middleUp = fingerUp(12, 10, landmarks); // Tengah
+            const ringUp = fingerUp(16, 14, landmarks);   // Manis
+            const pinkyUp = fingerUp(20, 18, landmarks);  // Kelingking
+
+            // Peace: Telunjuk dan Tengah terangkat, sisanya terlipat
+            return indexUp && middleUp && !ringUp && !pinkyUp;
+        }
+
+        function onResults(results) {
+            // Hilangkan loader saat gambar mulai terproses
+            if (loader.style.display !== 'none') {
+                loader.style.display = 'none';
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+            }
+
+            let peaceDetected = false;
+
+            // Jika tangan terdeteksi
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // Ambil data tangan pertama
+                const landmarks = results.multiHandLandmarks[0];
+                
+                if (isPeace(landmarks)) {
+                    peaceDetected = true;
+                }
+            }
+
+            // Update UI Indikator
+            if (peaceDetected) {
+                indicator.classList.add('active');
+                statusText.innerText = "Peace Detected! ✌️";
+                statusText.style.color = "#2ed573";
+            } else {
+                indicator.classList.remove('active');
+                statusText.innerText = "Mendeteksi tangan...";
+                statusText.style.color = "white";
+            }
+
+            // Proses Menggambar ke Canvas
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Beri efek blur jika "Peace" terdeteksi
+            if (peaceDetected) {
+                canvasCtx.filter = 'blur(20px)'; // Nilai seberapa buram efeknya
+            } else {
+                canvasCtx.filter = 'none';
+            }
+
+            // Menggambar video frame
+            canvasCtx.drawImage(
+                results.image, 0, 0, canvasElement.width, canvasElement.height
+            );
+            
+            canvasCtx.restore();
+        }
+
+        // Inisialisasi MediaPipe Hands
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 1, // Fokus pada 1 tangan saja seperti di Python
+            modelComplexity: 0, // 0 = cepat (ringan), 1 = akurat
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        // Inisialisasi Kamera dengan MediaPipe CameraUtils
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        
+        // Memulai kamera
+        camera.start().catch((err) => {
+            loader.innerHTML = `Gagal mengakses kamera ❌<br><span style="font-size: 0.9rem;">${err.message}</span>`;
+        });
+
+    </script>
+</body>
+</html>
